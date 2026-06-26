@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# env
+.env
+.env.local
+.env*.local
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# turbo
+.turbo/
+
+# os / editor
+.DS_Store
+*.pem
+.vscode/
+.idea/
+
+# supabase
+supabase/.branches
+supabase/.temp
+
+# local runtime artifacts
+.logs/
+dump.rdb

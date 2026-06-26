@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* ---------------------------------------------------------------------------
+ * Print stylesheet — A5 visit summary only.
+ * Everything is hidden by default when printing; only the element flagged with
+ * `data-print-area` (the patient visit summary) is shown.
+ * ------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A5;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Hide everything... */
+  body * {
+    visibility: hidden;
+  }
+
+  /* ...then reveal the print area and its descendants. */
+  [data-print-area],
+  [data-print-area] * {
+    visibility: visible;
+  }
+
+  [data-print-area] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

@@ -1,0 +1,17 @@
+-- seed.sql
+-- Optional local dev seed data, run by `supabase db reset` after migrations.
+--
+-- We intentionally DO NOT insert fake auth users here. `doctors.id` references
+-- `auth.users(id)`, so any seeded doctor must correspond to a real Supabase Auth
+-- user. To seed locally:
+--   1. Sign in once via email OTP (Inbucket at http://localhost:54324 catches the mail).
+--   2. Copy your auth user id from Studio (Authentication > Users).
+--   3. Uncomment and adapt the block below with that id.
+--
+-- Example:
+-- INSERT INTO doctors (id, name, registration_number, clinic_name)
+-- VALUES ('00000000-0000-0000-0000-000000000000', 'Dr. Demo', 'REG-001', 'Demo Clinic')
+-- ON CONFLICT (id) DO NOTHING;
+--
+-- INSERT INTO patients (doctor_id, name, phone, gender)
+-- VALUES ('00000000-0000-0000-0000-000000000000', 'Test Patient', '+910000000000', 'other');
