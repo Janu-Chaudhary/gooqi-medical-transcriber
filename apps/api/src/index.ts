@@ -17,7 +17,9 @@ import { patientsRouter } from "./routes/patients.js";
 import { doctorRouter } from "./routes/doctor.js";
 import { errorMiddleware } from "./middleware/error.js";
 
-const API_PORT = Number(process.env.API_PORT ?? 4000);
+// Render/Heroku-style hosts inject the port to bind on via PORT; fall back to
+// API_PORT (local dev) then 4000.
+const API_PORT = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 
 const app = express();
