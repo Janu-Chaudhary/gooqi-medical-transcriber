@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   Copy,
+  Eraser,
   ExternalLink,
   FileCheck2,
   Filter,
@@ -17,11 +18,13 @@ import {
   Phone,
   Search,
   Stethoscope,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { SessionStatus } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import type { SessionListItem } from "@/lib/api-types";
+import { useConfirm } from "@/components/ui/confirm";
 import { StatusBadge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -286,7 +289,12 @@ export default function SessionsPage() {
                     <StatusBadge status={s.status} />
                   </td>
                   <td className="px-5 py-3.5 align-middle">
-                    <RowMenu id={s.id} phone={s.patient_phone} />
+                    <RowMenu
+                      id={s.id}
+                      patientName={s.patient_name}
+                      phone={s.patient_phone}
+                      onChanged={load}
+                    />
                   </td>
                 </tr>
               ))}
@@ -296,38 +304,47 @@ export default function SessionsPage() {
           {/* Mobile cards */}
           <div className="divide-y divide-border md:hidden">
             {pageRows.map((s) => (
-              <Link
-                key={s.id}
-                href={`/sessions/${s.id}`}
-                className="flex items-start gap-3 p-4 transition-colors hover:bg-muted/40"
-              >
-                <Avatar name={s.patient_name} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="truncate font-medium">
-                      {s.patient_name || "Unknown patient"}
-                    </span>
-                    <StatusBadge status={s.status} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <CalendarDays className="size-3" />
-                      {formatDate(s.started_at ?? s.created_at)}
-                    </span>
-                    {s.patient_phone && (
-                      <span className="inline-flex items-center gap-1">
-                        <Phone className="size-3" />
-                        {s.patient_phone}
+              <div key={s.id} className="relative">
+                <Link
+                  href={`/sessions/${s.id}`}
+                  className="flex items-start gap-3 p-4 pr-12 transition-colors hover:bg-muted/40"
+                >
+                  <Avatar name={s.patient_name} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="truncate font-medium">
+                        {s.patient_name || "Unknown patient"}
                       </span>
+                      <StatusBadge status={s.status} />
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <CalendarDays className="size-3" />
+                        {formatDate(s.started_at ?? s.created_at)}
+                      </span>
+                      {s.patient_phone && (
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="size-3" />
+                          {s.patient_phone}
+                        </span>
+                      )}
+                    </div>
+                    {clean(s.chief_complaint) && (
+                      <p className="mt-2 line-clamp-2 text-sm">
+                        {clean(s.chief_complaint)}
+                      </p>
                     )}
                   </div>
-                  {clean(s.chief_complaint) && (
-                    <p className="mt-2 line-clamp-2 text-sm">
-                      {clean(s.chief_complaint)}
-                    </p>
-                  )}
+                </Link>
+                <div className="absolute right-2 top-3">
+                  <RowMenu
+                    id={s.id}
+                    patientName={s.patient_name}
+                    phone={s.patient_phone}
+                    onChanged={load}
+                  />
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
 
@@ -435,7 +452,57 @@ function PageSizeMenu({
   );
 }
 
-function RowMenu({ id, phone }: { id: string; phone: string | null }) {
+function RowMenu({
+  id,
+  patientName,
+  phone,
+  onChanged,
+}: {
+  id: string;
+  patientName: string | null;
+  phone: string | null;
+  onChanged: () => void;
+}) {
+  const { request } = useApi();
+  const confirm = useConfirm();
+
+  async function eraseAudio() {
+    const ok = await confirm({
+      title: "Erase recording?",
+      description:
+        "Permanently deletes the stored audio for this session. The transcript and clinical note are kept. This cannot be undone.",
+      confirmText: "Erase audio",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await request(`/api/sessions/${id}/erase-audio`, { method: "POST" });
+      toast.success("Audio erased");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to erase audio.");
+    }
+  }
+
+  async function deleteSession() {
+    const ok = await confirm({
+      title: "Delete session?",
+      description: `Permanently deletes this session${
+        patientName ? ` for ${patientName}` : ""
+      } — its audio, transcript, note and prescriptions. The consent record is retained for audit. This cannot be undone.`,
+      confirmText: "Delete session",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await request(`/api/sessions/${id}`, { method: "DELETE" });
+      toast.success("Session deleted");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete session.");
+    }
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -466,6 +533,20 @@ function RowMenu({ id, phone }: { id: string; phone: string | null }) {
             Copy phone
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem
+          className="text-amber-600 focus:text-amber-600 dark:text-amber-400"
+          onClick={eraseAudio}
+        >
+          <Eraser className="size-4" />
+          Erase audio
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={deleteSession}
+        >
+          <Trash2 className="size-4" />
+          Delete session
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -10,9 +10,13 @@ import {
   CONSENT_TEXT_EN,
   CONSENT_TEXT_HI,
   CONSENT_TEXT_VERSION,
+  REAUTH_MAX_AGE_SECONDS,
+  validateSignoff,
   type Session,
+  type SignoffMethod,
 } from "@gooqi/shared";
 import { supabase, AUDIO_BUCKET } from "../lib/supabase.js";
+import { deleteSessionCascade, eraseSessionAudio } from "../lib/deletion.js";
 import {
   enqueueTranscription,
   enqueueSummary,
@@ -43,6 +47,48 @@ async function getOwnedSession(req: Request, sessionId: string): Promise<Session
     throw new HttpError(404, "Session not found");
   }
   return data as Session;
+}
+
+/** Decode a JWT payload without verifying the signature (verification is done
+ * separately via Supabase). Returns null if the token is not a well-formed JWT. */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[1]) return null;
+  try {
+    const json = Buffer.from(parts[1], "base64url").toString("utf8");
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Verify a step-up re-authentication proof supplied at sign-off. The client
+ * obtains a *fresh* access token by re-authenticating (password re-entry or
+ * OTP) immediately before signing; we confirm it belongs to this doctor and
+ * was minted within REAUTH_MAX_AGE_SECONDS. This makes the signature
+ * attributable (IT Act 2000 §5) instead of a bare button click.
+ */
+async function verifyReauth(
+  token: unknown,
+  expectedUserId: string,
+): Promise<void> {
+  if (typeof token !== "string" || token.length === 0) {
+    throw new HttpError(401, "Re-authentication is required to sign off");
+  }
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user || data.user.id !== expectedUserId) {
+    throw new HttpError(401, "Re-authentication failed — please sign in again");
+  }
+  const payload = decodeJwtPayload(token);
+  const iat = payload && typeof payload.iat === "number" ? payload.iat : null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (iat === null || nowSec - iat > REAUTH_MAX_AGE_SECONDS) {
+    throw new HttpError(
+      401,
+      "Re-authentication has expired — please re-enter your credentials",
+    );
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -237,6 +283,30 @@ sessionsRouter.patch(
 );
 
 /* -------------------------------------------------------------------------- */
+/* DELETE /api/sessions/:id — hard-delete a session and all dependent data.     */
+/* -------------------------------------------------------------------------- */
+sessionsRouter.delete(
+  "/sessions/:id",
+  asyncHandler(async (req, res) => {
+    const session = await getOwnedSession(req, req.params.id!);
+    await deleteSessionCascade(session.id, session.audio_url);
+    res.json({ deleted: true, id: session.id });
+  }),
+);
+
+/* -------------------------------------------------------------------------- */
+/* POST /api/sessions/:id/erase-audio — DPDP erasure: purge audio, keep note.   */
+/* -------------------------------------------------------------------------- */
+sessionsRouter.post(
+  "/sessions/:id/erase-audio",
+  asyncHandler(async (req, res) => {
+    const session = await getOwnedSession(req, req.params.id!);
+    await eraseSessionAudio(session.id, session.audio_url);
+    res.json({ erased: true, id: session.id });
+  }),
+);
+
+/* -------------------------------------------------------------------------- */
 /* POST /api/sessions/:id/chunks — upload one audio chunk.                      */
 /* -------------------------------------------------------------------------- */
 sessionsRouter.post(
@@ -391,16 +461,27 @@ sessionsRouter.post(
       throw new HttpError(500, `Failed to update session: ${sErr.message}`);
     }
 
-    // Enqueue transcription. If Redis is down, keep status audio_uploaded and
-    // surface a warning so the client/worker can retry later.
+    // Enqueue transcription. If the queue is unreachable (e.g. Redis down), the
+    // job never runs and the session would otherwise sit at `audio_uploaded`
+    // forever with the UI spinning "Processing…". Mark it `transcription_failed`
+    // so the review page shows an error + Retry (which re-enqueues) instead of
+    // an indefinite spinner. The audio is already saved, so retry is cheap.
     try {
       await enqueueTranscription(session.id);
       res.json({ status: "audio_uploaded" });
     } catch (err) {
-      console.warn("[sessions] enqueueTranscription failed:", err);
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn("[sessions] enqueueTranscription failed:", reason);
+      await supabase
+        .from("sessions")
+        .update({
+          status: "transcription_failed",
+          failure_reason: `Could not queue transcription (is the job queue reachable?): ${reason}`,
+        })
+        .eq("id", session.id);
       res.json({
-        status: "audio_uploaded",
-        warning: "Transcription could not be queued; will need a manual retry.",
+        status: "transcription_failed",
+        warning: "Transcription could not be queued — use Retry on the session page.",
       });
     }
   }),
@@ -550,6 +631,56 @@ sessionsRouter.get(
 );
 
 /* -------------------------------------------------------------------------- */
+/* PATCH /api/sessions/:id/summary — doctor edits the plain-language summary.   */
+/* -------------------------------------------------------------------------- */
+sessionsRouter.patch(
+  "/sessions/:id/summary",
+  asyncHandler(async (req, res) => {
+    const session = await getOwnedSession(req, req.params.id!);
+    const content = req.body?.content;
+    if (typeof content !== "string" || content.trim() === "") {
+      throw new HttpError(400, "Summary content is required");
+    }
+    const { error } = await supabase.from("visit_summaries").upsert(
+      { session_id: session.id, content, edited_by_doctor: true },
+      { onConflict: "session_id" },
+    );
+    if (error) {
+      throw new HttpError(500, `Failed to save summary: ${error.message}`);
+    }
+    res.json({ summary: content, edited_by_doctor: true });
+  }),
+);
+
+/* -------------------------------------------------------------------------- */
+/* POST /api/sessions/:id/summary/regenerate — re-run visit-summary generation. */
+/* -------------------------------------------------------------------------- */
+sessionsRouter.post(
+  "/sessions/:id/summary/regenerate",
+  asyncHandler(async (req, res) => {
+    const session = await getOwnedSession(req, req.params.id!);
+    // A summary is derived from the finalised note, so only makes sense once
+    // the note exists (draft or final).
+    const note = await getLatestNote(session.id);
+    if (!note) {
+      throw new HttpError(409, "No clinical note to summarise yet");
+    }
+    // Clear the current summary so the client can poll for the fresh one to
+    // appear (rather than being unable to tell the old text from the new).
+    await supabase.from("visit_summaries").delete().eq("session_id", session.id);
+    try {
+      await enqueueSummary(session.id);
+    } catch (err) {
+      throw new HttpError(
+        503,
+        `Could not queue summary regeneration: ${(err as Error).message}`,
+      );
+    }
+    res.json({ status: "regenerating" });
+  }),
+);
+
+/* -------------------------------------------------------------------------- */
 /* PATCH /api/sessions/:id/note — autosave SOAP + prescriptions (draft only).   */
 /* -------------------------------------------------------------------------- */
 sessionsRouter.patch(
@@ -620,6 +751,16 @@ sessionsRouter.post(
 
     const body = req.body ?? {};
 
+    // IT Act 2000 §5: a finalised clinical record must be attributable. Require
+    // a fresh step-up re-authentication proof before accepting the signature.
+    await verifyReauth(body.reauth_access_token, req.doctorId!);
+    const signoffMethod: SignoffMethod =
+      body.reauth_method === "otp"
+        ? "otp"
+        : body.reauth_method === "oauth"
+          ? "oauth"
+          : "password";
+
     // Merge any final edits supplied with the sign-off request.
     const fields: Record<string, unknown> = { version: "doctor_edited" };
     for (const key of [
@@ -650,24 +791,29 @@ sessionsRouter.post(
     }
     const prescriptions = await getPrescriptionsForNote(note.id as string);
 
-    // Validate required fields for a final note.
-    const noMedication = (finalNote.no_medication as boolean) === true;
-    if (!finalNote.chief_complaint) {
-      throw new HttpError(400, "Chief complaint is required to sign off");
-    }
-    if (!finalNote.primary_diagnosis) {
-      throw new HttpError(400, "Primary diagnosis is required to sign off");
-    }
-    if (prescriptions.length === 0 && !noMedication) {
-      throw new HttpError(
-        400,
-        "At least one prescription or no_medication=true is required",
-      );
+    // Validate required fields for a final note (shared rule — same as the
+    // client's sign-off gate, so they cannot drift).
+    const validation = validateSignoff(
+      {
+        chief_complaint: finalNote.chief_complaint as string | null,
+        primary_diagnosis: finalNote.primary_diagnosis as string | null,
+        no_medication: finalNote.no_medication as boolean,
+      },
+      prescriptions.length,
+    );
+    if (!validation.ok) {
+      throw new HttpError(400, validation.reason ?? "Note is not ready to sign off");
     }
 
     const { error: sErr } = await supabase
       .from("sessions")
-      .update({ status: "final", finalised_at: new Date().toISOString() })
+      .update({
+        status: "final",
+        finalised_at: new Date().toISOString(),
+        signoff_method: signoffMethod,
+        signoff_ip: req.ip ?? null,
+        signoff_user_agent: req.headers["user-agent"] ?? null,
+      })
       .eq("id", session.id);
     if (sErr) {
       throw new HttpError(500, `Failed to finalise session: ${sErr.message}`);

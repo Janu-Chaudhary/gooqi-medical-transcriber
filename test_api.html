@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>API Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #1e1e1e; color: #fff; }
+    h1 { color: #00bcd4; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #444; padding: 10px; text-align: left; }
+    th { background: #333; }
+    .status-404 { color: #f44336; font-weight: bold; }
+    .status-ok { color: #4caf50; font-weight: bold; }
+    .status-auth { color: #ff9800; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>GOQii Vertex API Test</h1>
+  <div id="status">Testing...</div>
+  <table id="results">
+    <thead>
+      <tr>
+        <th>URL</th>
+        <th>Header Style</th>
+        <th>Status</th>
+        <th>Response Text</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const clientId = "5tra1IQYBCog7Wcaqtd7aa7f";
+    const clientSecret = "4d6ee8baae2cf4af811e41ded53e51450440ea7062aa8eaef5d21ed5fe86a8df";
+    
+    const urls = [
+      "https://apiv6.goqii.com/vertex/recording",
+      "https://apiv6.goqii.com/vertex/transcribe",
+      "https://apiv6.goqii.com/vertex/audio",
+      "https://apiv6.goqii.com/vertex"
+    ];
+
+    const combinations = [
+      { name: "camelCase (clientId / clientSecret)", headers: { "clientId": clientId, "clientSecret": clientSecret } },
+      { name: "kebab-case (client-id / client-secret)", headers: { "client-id": clientId, "client-secret": clientSecret } },
+      { name: "snake_case (client_id / client_secret)", headers: { "client_id": clientId, "client_secret": clientSecret } },
+      { name: "x-headers (x-client-id / x-client-secret)", headers: { "x-client-id": clientId, "x-client-secret": clientSecret } }
+    ];
+
+    async function run() {
+      const tbody = document.querySelector("#results tbody");
+      for (const url of urls) {
+        for (const comb of combinations) {
+          const row = document.createElement("tr");
+          
+          const tdUrl = document.createElement("td");
+          tdUrl.textContent = url;
+          row.appendChild(tdUrl);
+          
+          const tdComb = document.createElement("td");
+          tdComb.textContent = comb.name;
+          row.appendChild(tdComb);
+          
+          const tdStatus = document.createElement("td");
+          tdStatus.textContent = "Pending...";
+          row.appendChild(tdStatus);
+          
+          const tdText = document.createElement("td");
+          tdText.textContent = "...";
+          row.appendChild(tdText);
+          
+          tbody.appendChild(row);
+
+          try {
+            const res = await fetch(url, {
+              method: "POST",
+              headers: {
+                ...comb.headers,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                file: "https://giokilhxwatscmjcidwl.supabase.co/storage/v1/object/public/session-audio/nonexistent.webm",
+                prompt: "transcribe"
+              })
+            });
+
+            tdStatus.textContent = res.status;
+            if (res.status === 404) {
+              tdStatus.className = "status-404";
+            } else if (res.status === 401 || res.status === 403) {
+              tdStatus.className = "status-auth";
+            } else {
+              tdStatus.className = "status-ok";
+            }
+
+            const text = await res.text();
+            tdText.textContent = text.slice(0, 200);
+          } catch (err) {
+            tdStatus.textContent = "Error";
+            tdStatus.className = "status-404";
+            tdText.textContent = err.message;
+          }
+        }
+      }
+      document.getElementById("status").textContent = "Done!";
+    }
+
+    run();
+  </script>
+</body>
+</html>

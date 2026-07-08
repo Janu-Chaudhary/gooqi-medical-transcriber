@@ -73,6 +73,10 @@ export interface Session {
   asr_provider: string | null;
   audio_purged_at: string | null;
   failure_reason: string | null;
+  /** How the doctor re-authenticated at sign-off (IT Act 2000 §5 audit trail). */
+  signoff_method: string | null;
+  signoff_ip: string | null;
+  signoff_user_agent: string | null;
   created_at: string;
 }
 

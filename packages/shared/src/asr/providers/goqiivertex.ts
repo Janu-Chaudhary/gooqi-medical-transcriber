@@ -140,6 +140,19 @@ export class GoqiiVertexASRProvider extends ASRProvider {
       );
     }
 
+    // The model returns exactly "NONE" when it hears no clear speech. Treat that
+    // as a hard, non-retryable "no speech" failure — surfacing an honest error to
+    // the doctor is the only safe outcome; the alternative (letting a general LLM
+    // narrate unclear audio) risks a fabricated clinical record.
+    if (/^none[.!\s]*$/i.test(transcript.trim())) {
+      throw new ASRPermanentError(
+        "No intelligible speech detected in the recording. Check the audio input " +
+          "(microphone / Stereo Mix volume) and record again.",
+        ASRErrorCode.INVALID_AUDIO,
+        this.getName(),
+      );
+    }
+
     const turns = parseTurns(transcript);
     const overallConfidence = ESTIMATED_CONFIDENCE;
 
@@ -156,21 +169,30 @@ export class GoqiiVertexASRProvider extends ASRProvider {
 }
 
 /**
- * Build the transcription instruction. We ask for speaker-labelled, verbatim
- * output in the requested script so the plain-text response can be parsed into
- * doctor/patient turns.
+ * Build the transcription instruction.
+ *
+ * CRITICAL (clinical safety): the endpoint is a general LLM (Gemini), which will
+ * happily *fabricate* a plausible consultation if the prompt primes it to expect
+ * one and the audio is unclear. An earlier prompt ("Transcribe this doctor–patient
+ * medical consultation…") caused exactly that — it invented Hinglish dialogue for
+ * audio that had no clear speech. This prompt is deliberately neutral and strict:
+ * transcribe only what is actually heard, in the exact language spoken, and return
+ * the sentinel NONE when there is no intelligible speech (handled by the caller as
+ * a hard "no speech" failure rather than a fake transcript).
  */
 function buildPrompt(options: TranscribeOptions): string {
   const script =
     options.scriptOutput === "devanagari"
-      ? "Use Devanagari script for Hindi."
-      : "Transliterate any Hindi/Hinglish speech into Roman (Latin) script.";
+      ? "for Hindi speech use Devanagari script"
+      : "for Hindi/Hinglish speech transliterate into Roman (Latin) script";
 
   return [
-    "Transcribe this doctor–patient medical consultation verbatim.",
-    "Write each speaker's turn on its own line, prefixed with exactly 'Doctor:' or 'Patient:' (use 'Other:' for anyone else).",
-    script,
-    "Do not summarise, translate, or add commentary. Output only the transcript lines.",
+    "You are a strict speech-to-text transcriber. Transcribe the audio word-for-word (verbatim)",
+    `in the EXACT language actually spoken — if English is spoken, output English; ${script}.`,
+    "If you can clearly tell who is speaking, prefix each turn on its own line with 'Doctor:' or 'Patient:' (use 'Other:' for anyone else); otherwise just write the spoken lines.",
+    "ABSOLUTE RULES: Transcribe ONLY words you can actually and clearly hear.",
+    "Never translate to a different language. Never guess, summarise, add, or invent any words, names, symptoms, medicines, or dialogue. Do not assume the audio is a medical consultation.",
+    "If the audio has no clear, intelligible speech (silence, noise, or music only), output exactly the single word: NONE",
   ].join(" ");
 }
 

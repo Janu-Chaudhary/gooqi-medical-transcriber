@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, Phone, Plus, Search, UserPlus, Users } from "lucide-react";
+import {
+  CalendarDays,
+  MoreVertical,
+  Phone,
+  Plus,
+  Search,
+  Trash2,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useApi } from "@/lib/api";
 import type { PatientListItem } from "@/lib/api-types";
@@ -13,6 +22,13 @@ import { Select } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useConfirm } from "@/components/ui/confirm";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -127,6 +143,7 @@ export default function PatientsPage() {
                   <th className="px-4 py-3 font-medium">Age</th>
                   <th className="px-4 py-3 font-medium">Visits</th>
                   <th className="px-4 py-3 font-medium">Last visit</th>
+                  <th className="w-12 px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -155,6 +172,14 @@ export default function PatientsPage() {
                     <td className="px-4 py-3 text-muted-foreground">
                       {formatDate(p.last_visit_at)}
                     </td>
+                    <td className="px-4 py-3">
+                      <PatientRowMenu
+                        id={p.id}
+                        name={p.name}
+                        sessionCount={p.session_count}
+                        onChanged={load}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -164,26 +189,36 @@ export default function PatientsPage() {
           {/* Mobile cards */}
           <div className="space-y-3 md:hidden">
             {filtered.map((p) => (
-              <Link key={p.id} href={`/patients/${p.id}`}>
-                <Card className="p-4 transition-colors hover:bg-muted/50">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-primary">{p.name}</span>
-                    <Badge tone="teal">{p.session_count} visits</Badge>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    {p.phone && (
+              <div key={p.id} className="relative">
+                <Link href={`/patients/${p.id}`}>
+                  <Card className="p-4 pr-12 transition-colors hover:bg-muted/50">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-primary">{p.name}</span>
+                      <Badge tone="teal">{p.session_count} visits</Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      {p.phone && (
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="size-3" />
+                          {p.phone}
+                        </span>
+                      )}
                       <span className="inline-flex items-center gap-1">
-                        <Phone className="size-3" />
-                        {p.phone}
+                        <CalendarDays className="size-3" />
+                        {formatDate(p.last_visit_at)}
                       </span>
-                    )}
-                    <span className="inline-flex items-center gap-1">
-                      <CalendarDays className="size-3" />
-                      {formatDate(p.last_visit_at)}
-                    </span>
-                  </div>
-                </Card>
-              </Link>
+                    </div>
+                  </Card>
+                </Link>
+                <div className="absolute right-2 top-2.5">
+                  <PatientRowMenu
+                    id={p.id}
+                    name={p.name}
+                    sessionCount={p.session_count}
+                    onChanged={load}
+                  />
+                </div>
+              </div>
             ))}
           </div>
         </>
@@ -195,6 +230,67 @@ export default function PatientsPage() {
         onCreated={() => void load()}
       />
     </div>
+  );
+}
+
+function PatientRowMenu({
+  id,
+  name,
+  sessionCount,
+  onChanged,
+}: {
+  id: string;
+  name: string;
+  sessionCount: number;
+  onChanged: () => void;
+}) {
+  const { request } = useApi();
+  const confirm = useConfirm();
+
+  async function remove() {
+    const ok = await confirm({
+      title: "Delete patient?",
+      description:
+        sessionCount > 0
+          ? `Permanently deletes ${name} and all ${sessionCount} session${
+              sessionCount === 1 ? "" : "s"
+            } (audio, transcripts, notes). Consent records are retained for audit. This cannot be undone.`
+          : `Permanently deletes ${name}. This cannot be undone.`,
+      confirmText: "Delete patient",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await request(`/api/patients/${id}`, { method: "DELETE" });
+      toast.success("Patient deleted");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete patient.");
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="opacity-60 group-hover:opacity-100"
+          aria-label="Patient actions"
+        >
+          <MoreVertical className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={remove}
+        >
+          <Trash2 className="size-4" />
+          Delete patient
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -8,6 +8,7 @@
 import { Router, type Request } from "express";
 import type { Patient } from "@gooqi/shared";
 import { supabase } from "../lib/supabase.js";
+import { deleteSessionCascade } from "../lib/deletion.js";
 import { requireAuth } from "../middleware/auth.js";
 import { asyncHandler, HttpError } from "../middleware/error.js";
 
@@ -191,6 +192,43 @@ patientsRouter.patch(
       throw new HttpError(500, `Failed to update patient: ${error?.message}`);
     }
     res.json({ patient: data });
+  }),
+);
+
+/* -------------------------------------------------------------------------- */
+/* DELETE /api/patients/:id — hard-delete a patient and all their sessions.     */
+/* -------------------------------------------------------------------------- */
+patientsRouter.delete(
+  "/patients/:id",
+  asyncHandler(async (req, res) => {
+    const patient = await getOwnedPatient(req, req.params.id!); // ownership gate
+
+    // Cascade-delete every session for this patient (and its clinical data),
+    // then the patient row. consent_log rows are preserved (0014).
+    const { data: sessions, error } = await supabase
+      .from("sessions")
+      .select("id, audio_url")
+      .eq("doctor_id", req.doctorId!)
+      .eq("patient_id", patient.id);
+    if (error) {
+      throw new HttpError(500, `Failed to read patient sessions: ${error.message}`);
+    }
+
+    for (const s of sessions ?? []) {
+      const row = s as { id: string; audio_url: string | null };
+      await deleteSessionCascade(row.id, row.audio_url);
+    }
+
+    const { error: delErr } = await supabase
+      .from("patients")
+      .delete()
+      .eq("id", patient.id)
+      .eq("doctor_id", req.doctorId!); // defence-in-depth
+    if (delErr) {
+      throw new HttpError(500, `Failed to delete patient: ${delErr.message}`);
+    }
+
+    res.json({ deleted: true, id: patient.id, sessions_deleted: sessions?.length ?? 0 });
   }),
 );
 

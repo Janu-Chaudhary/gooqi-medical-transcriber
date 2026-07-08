@@ -3,6 +3,7 @@ import { ASRErrorCode, ASRPermanentError, ASRTransientError } from "../errors.js
 import type { TranscribeOptions, TranscriptResult } from "../types.js";
 import {
   aggregateTurns,
+  isSarvamJobNotReady,
   sarvamResponseToTurns,
   toSarvamLanguageCode,
   type SarvamResponse,
@@ -35,6 +36,10 @@ import {
 const JOB_BASE = "https://api.sarvam.ai/speech-to-text/job/v1";
 const POLL_INTERVAL_MS = 4_000;
 const MAX_POLL_ATTEMPTS = 150; // ~10 minutes
+// Extra tolerance for the status→download eventual-consistency window: after
+// `status` reports Completed, `download-files` may still 400 with "not in
+// COMPLETED state" for a few seconds. Retry that specific case before failing.
+const DOWNLOAD_MAX_ATTEMPTS = 15; // ~60s at POLL_INTERVAL_MS
 
 const AUDIO_CONTENT_TYPE: Record<TranscribeOptions["audioFormat"], string> = {
   wav: "audio/wav",
@@ -253,6 +258,13 @@ export class SarvamBatchASRProvider extends ASRProvider {
             this.getName(),
           );
         }
+        // Completion is sometimes reported a beat before the output file list
+        // is populated — keep polling until we actually have an output filename
+        // rather than proceeding to download with an undefined file.
+        if (!detail.outputs?.[0]?.file_name) {
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+          continue;
+        }
         return detail;
       }
       if (status.job_state === "Failed") {
@@ -283,24 +295,71 @@ export class SarvamBatchASRProvider extends ASRProvider {
   }
 
   private async downloadResult(jobId: string, outputFile: string): Promise<SarvamResponse> {
-    const res = await this.fetchJson(`${JOB_BASE}/download-files`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify({ job_id: jobId, files: [outputFile] }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const body = (await res.json()) as {
-      download_urls: Record<string, { file_url: string }>;
-    };
-    const entry = body.download_urls[outputFile];
-    if (!entry) {
+    // The download-files endpoint validates job completion server-side and can
+    // 400 with "not in COMPLETED state" even after `status` reported Completed
+    // (eventual consistency). Retry that specific case; fail fast on anything
+    // that is genuinely permanent (auth, real bad input).
+    let fileUrl: string | undefined;
+    for (let attempt = 0; attempt < DOWNLOAD_MAX_ATTEMPTS; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${JOB_BASE}/download-files`, {
+          method: "POST",
+          headers: this.headers(),
+          body: JSON.stringify({ job_id: jobId, files: [outputFile] }),
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (err) {
+        throw new ASRTransientError(
+          err instanceof Error ? err.message : String(err),
+          ASRErrorCode.TIMEOUT,
+          this.getName(),
+        );
+      }
+
+      if (res.ok) {
+        const body = (await res.json()) as {
+          download_urls: Record<string, { file_url: string }>;
+        };
+        fileUrl = body.download_urls[outputFile]?.file_url;
+        break;
+      }
+
+      const text = await res.text().catch(() => "");
+      if ((res.status === 400 || res.status === 409) && isSarvamJobNotReady(text)) {
+        // Job not visible as completed to this endpoint yet — wait and retry.
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        continue;
+      }
+      if (res.status === 401 || res.status === 403) {
+        throw new ASRPermanentError(`Auth failure (${res.status})`, ASRErrorCode.AUTH_FAILURE, this.getName());
+      }
+      if (res.status === 400 || res.status === 422) {
+        throw new ASRPermanentError(
+          `Invalid download request (${res.status}): ${text.slice(0, 300)}`,
+          ASRErrorCode.INVALID_AUDIO,
+          this.getName(),
+        );
+      }
+      if (res.status === 429) {
+        throw new ASRTransientError("Rate limited", ASRErrorCode.RATE_LIMIT, this.getName());
+      }
       throw new ASRTransientError(
-        "Download URL response did not include the requested file",
+        `Download request failed (${res.status}): ${text.slice(0, 300)}`,
         ASRErrorCode.UNKNOWN,
         this.getName(),
       );
     }
-    const fileRes = await fetch(entry.file_url, { signal: AbortSignal.timeout(30_000) });
+
+    if (!fileUrl) {
+      throw new ASRTransientError(
+        `download-files did not return a URL after ${DOWNLOAD_MAX_ATTEMPTS} attempts (job still not ready)`,
+        ASRErrorCode.TIMEOUT,
+        this.getName(),
+      );
+    }
+
+    const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(30_000) });
     if (!fileRes.ok) {
       throw new ASRTransientError(
         `Failed to download transcript (${fileRes.status})`,

@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, Pill, Printer, MessagesSquare } from "lucide-react";
+import {
+  FileText,
+  Pencil,
+  Pill,
+  Printer,
+  MessagesSquare,
+  RefreshCw,
+} from "lucide-react";
 import type { Turn } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import type {
@@ -11,6 +18,7 @@ import type {
   TranscriptResponse,
 } from "@/lib/api-types";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -30,6 +38,11 @@ export function ReadOnlyView({
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [draftSummary, setDraftSummary] = useState("");
+  const [savingSummary, setSavingSummary] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadNote = useCallback(async () => {
@@ -63,10 +76,12 @@ export function ReadOnlyView({
     };
   }, [request, sessionId, loadNote]);
 
-  // Poll for the visit summary until it appears.
+  // Poll for the visit summary until it appears (initial generation, or
+  // after a manual regenerate cleared it).
   useEffect(() => {
     if (summary) {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (regenerating) setRegenerating(false);
       return;
     }
     pollRef.current = setInterval(() => {
@@ -75,7 +90,55 @@ export function ReadOnlyView({
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [summary, loadNote]);
+  }, [summary, loadNote, regenerating]);
+
+  function startEditSummary() {
+    setSummaryError(null);
+    setDraftSummary(summary ?? "");
+    setEditingSummary(true);
+  }
+
+  function cancelEditSummary() {
+    setEditingSummary(false);
+    setSummaryError(null);
+  }
+
+  async function saveSummary() {
+    const content = draftSummary.trim();
+    if (!content) return;
+    setSavingSummary(true);
+    setSummaryError(null);
+    try {
+      await request(`/api/sessions/${sessionId}/summary`, {
+        method: "PATCH",
+        body: { content },
+      });
+      setSummary(content);
+      setEditingSummary(false);
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSavingSummary(false);
+    }
+  }
+
+  async function regenerateSummary() {
+    setSummaryError(null);
+    setRegenerating(true);
+    try {
+      await request(`/api/sessions/${sessionId}/summary/regenerate`, {
+        method: "POST",
+      });
+      // Clear the current text so the poll loop above knows to wait for a
+      // fresh one instead of immediately re-reading the stale value.
+      setSummary(null);
+    } catch (err) {
+      setRegenerating(false);
+      setSummaryError(
+        err instanceof Error ? err.message : "Failed to regenerate.",
+      );
+    }
+  }
 
   if (loading)
     return (
@@ -111,20 +174,77 @@ export function ReadOnlyView({
             <div className="text-xs">Visit date: {formatVisitDate(visitDate)}</div>
           )}
         </div>
-        <CardHeader>
+        <CardHeader className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <FileText className="size-4 text-primary" />
             Visit Summary
           </CardTitle>
+          {!editingSummary && (
+            <div className="flex items-center gap-2 no-print">
+              {summary && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={startEditSummary}
+                >
+                  <Pencil className="size-3.5" />
+                  Edit
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={regenerateSummary}
+                disabled={regenerating}
+                loading={regenerating}
+              >
+                <RefreshCw className="size-3.5" />
+                {regenerating ? "Regenerating…" : "Regenerate"}
+              </Button>
+            </div>
+          )}
         </CardHeader>
-        <CardBody>
-          {summary ? (
+        <CardBody className="space-y-3">
+          {summaryError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive no-print">
+              {summaryError}
+            </p>
+          )}
+
+          {editingSummary ? (
+            <div className="space-y-3 no-print">
+              <Textarea
+                value={draftSummary}
+                onChange={(e) => setDraftSummary(e.target.value)}
+                rows={8}
+                autoFocus
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={saveSummary}
+                  disabled={savingSummary || draftSummary.trim() === ""}
+                  loading={savingSummary}
+                >
+                  Save
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={cancelEditSummary}
+                  disabled={savingSummary}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : summary ? (
             <p className="whitespace-pre-wrap text-sm leading-relaxed">
               {summary}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">
-              The patient visit summary is still being generated…
+              {regenerating
+                ? "Regenerating the patient summary…"
+                : "The patient visit summary is still being generated…"}
             </p>
           )}
         </CardBody>

@@ -43,6 +43,11 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
   const [showWarning, setShowWarning] = useState(false);
   const [inflight, setInflight] = useState(0);
 
+  // Audio input device selection (e.g. a specific mic, or "Stereo Mix" to
+  // capture system audio). Empty deviceId = the browser default input.
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState<string>("");
+
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -130,6 +135,21 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
       render();
     } catch {
       /* visualizer is non-essential */
+    }
+  }, []);
+
+  // --- Enumerate audio input devices --------------------------------------
+  const refreshDevices = useCallback(async () => {
+    try {
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const inputs = all.filter((d) => d.kind === "audioinput");
+      setDevices(inputs);
+      // If the currently-selected device vanished (unplugged), fall back to default.
+      setDeviceId((cur) =>
+        cur && !inputs.some((d) => d.deviceId === cur) ? "" : cur,
+      );
+    } catch {
+      /* enumeration unsupported — the default device still works */
     }
   }, []);
 
@@ -290,8 +310,23 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
   const start = useCallback(async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Disable the browser's voice-call DSP. echoCancellation / noiseSuppression
+      // / autoGainControl are tuned for a single person speaking into a mic; when
+      // the source is system audio (a video routed via Stereo Mix / a virtual
+      // cable) they treat the playback as "noise"/"echo" and destroy the signal —
+      // producing faint or empty recordings of otherwise-clear audio. Off is also
+      // better for ASR generally (raw audio, no over-processing).
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+        },
+      });
       streamRef.current = stream;
+      // Labels are guaranteed populated now that permission is granted.
+      void refreshDevices();
       const mimeType = pickMimeType();
       // Without an explicit bitrate, some browsers default audio/webm to
       // ~128kbps, which puts a full MAX_RECORDING_MS (60min) session close to
@@ -323,7 +358,15 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
           : "Could not access microphone.",
       );
     }
-  }, [finalise, handleData, requestWakeLock, startTimer, startVisualizer]);
+  }, [
+    deviceId,
+    refreshDevices,
+    finalise,
+    handleData,
+    requestWakeLock,
+    startTimer,
+    startVisualizer,
+  ]);
 
   const pause = useCallback(() => {
     const mr = recorderRef.current;
@@ -346,6 +389,30 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
       setState("recording");
     }
   }, [requestWakeLock, startTimer]);
+
+  useEffect(() => {
+    // Device labels are only exposed after mic permission is granted. Prime a
+    // one-time permission so the dropdown shows real names ("Stereo Mix",
+    // "Headset Mic", …) before the first recording; then release the stream.
+    let cancelled = false;
+    void (async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* denied/unavailable — enumerate anyway (labels may be blank) */
+      }
+      if (!cancelled) await refreshDevices();
+    })();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refreshDevices);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices?.removeEventListener?.(
+        "devicechange",
+        refreshDevices,
+      );
+    };
+  }, [refreshDevices]);
 
   // --- Re-queue pending chunks when connectivity returns ------------------
   useEffect(() => {
@@ -487,6 +554,36 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
         {error && (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
+          </div>
+        )}
+
+        {/* Input device selector (idle only — can't switch mid-recording) */}
+        {state === "idle" && (
+          <div className="space-y-1.5">
+            <label
+              htmlFor="audio-input"
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+            >
+              <Mic className="size-3.5" />
+              Audio input
+            </label>
+            <select
+              id="audio-input"
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+              className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
+            >
+              <option value="">Default microphone</option>
+              {devices.map((d, i) => (
+                <option key={d.deviceId || i} value={d.deviceId}>
+                  {d.label || `Input ${i + 1}`}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              To transcribe audio playing on this computer (e.g. a video call),
+              pick “Stereo Mix” or a virtual audio cable.
+            </p>
           </div>
         )}
 
