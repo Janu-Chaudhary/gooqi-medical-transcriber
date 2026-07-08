@@ -160,15 +160,15 @@ export default function SessionsPage() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-5 sm:space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Sessions</h1>
           <p className="text-sm text-muted-foreground">
             Your recorded consultations and generated notes.
           </p>
         </div>
-        <Button asChild size="lg">
+        <Button asChild size="lg" className="w-full sm:w-auto">
           <Link href="/sessions/new">
             <Mic className="size-4" />
             New Session
@@ -176,7 +176,7 @@ export default function SessionsPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-3 sm:gap-4">
         <StatCard
           label="Total sessions"
           caption="All-time consultations"
@@ -205,8 +205,8 @@ export default function SessionsPage() {
         />
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="relative w-full max-w-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative w-full sm:max-w-sm">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search patient, phone, or complaint…"
@@ -487,9 +487,8 @@ function RowMenu({
   async function deleteSession() {
     const ok = await confirm({
       title: "Delete session?",
-      description: `Permanently deletes this session${
-        patientName ? ` for ${patientName}` : ""
-      } — its audio, transcript, note and prescriptions. The consent record is retained for audit. This cannot be undone.`,
+      description: `Permanently deletes this session${patientName ? ` for ${patientName}` : ""
+        } — its audio, transcript, note and prescriptions. The consent record is retained for audit. This cannot be undone.`,
       confirmText: "Delete session",
       variant: "danger",
     });

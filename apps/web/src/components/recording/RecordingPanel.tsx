@@ -71,7 +71,7 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
     analyserRef.current = null;
     const ctx = audioCtxRef.current;
     audioCtxRef.current = null;
-    if (ctx && ctx.state !== "closed") ctx.close().catch(() => {});
+    if (ctx && ctx.state !== "closed") ctx.close().catch(() => { });
     const canvas = canvasRef.current;
     const c = canvas?.getContext("2d");
     if (canvas && c) c.clearRect(0, 0, canvas.width, canvas.height);
@@ -252,7 +252,7 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
     await Promise.allSettled(Array.from(uploadsRef.current));
     const pending = await getPendingChunks(sessionId);
     for (const c of pending) {
-      await uploadChunk(c).catch(() => {});
+      await uploadChunk(c).catch(() => { });
     }
     try {
       await request(`/api/sessions/${sessionId}/finalise-audio`, {
@@ -267,7 +267,7 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
       // Blobs stay in IndexedDB forever (clearSession is otherwise only
       // called from the crash-recovery path), so browser storage grows
       // unbounded over routine use until it hits a quota error.
-      await clearSession(sessionId).catch(() => {});
+      await clearSession(sessionId).catch(() => { });
     } catch (err) {
       setError(
         err instanceof Error
@@ -420,7 +420,7 @@ export function RecordingPanel({ sessionId }: { sessionId: string }) {
       void (async () => {
         const pending = await getPendingChunks(sessionId);
         for (const c of pending) {
-          trackUpload(uploadChunk(c).catch(() => {}));
+          trackUpload(uploadChunk(c).catch(() => { }));
         }
       })();
     };

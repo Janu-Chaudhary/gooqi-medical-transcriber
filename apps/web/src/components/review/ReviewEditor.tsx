@@ -170,7 +170,7 @@ export function ReviewEditor({
       await request(`/api/sessions/${sessionId}/transcript`, {
         method: "PATCH",
         body: { turns },
-      }).catch(() => {});
+      }).catch(() => { });
       dirtyRef.current = false;
       setDirty(false);
       setSavedAt(

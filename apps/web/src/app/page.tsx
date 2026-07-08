@@ -88,14 +88,14 @@ export default function LandingPage() {
 /* -------------------------------------------------------------------------- */
 function Hero() {
   return (
-    <section className="relative pt-32 pb-48 overflow-hidden">
+    <section className="relative pt-24 sm:pt-32 pb-24 sm:pb-48 overflow-hidden">
       {/* Ambient background glows */}
       <div className="pointer-events-none absolute inset-x-0 -top-40 h-[700px] bg-[radial-gradient(ellipse_at_top,rgba(64,60,213,0.3),transparent_60%)]" />
       <div className="pointer-events-none absolute right-0 top-1/4 h-[500px] w-[500px] bg-[radial-gradient(circle_at_center,rgba(0,177,255,0.08),transparent_70%)] blur-3xl" />
       <div className="pointer-events-none absolute left-0 bottom-0 h-[400px] w-[400px] bg-[radial-gradient(circle_at_center,rgba(0,255,170,0.05),transparent_70%)] blur-3xl" />
       
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="grid items-start gap-12 lg:grid-cols-[1fr_2.5fr] lg:gap-16">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <div className="grid items-start gap-8 sm:gap-12 lg:grid-cols-[1fr_2.5fr] lg:gap-16">
           
           {/* Left column: Line-art wireframe Illustration (Asymmetric Rhythm) */}
           <div className="hidden lg:block animate-fade-in py-6">
@@ -112,28 +112,28 @@ function Hero() {
                 </span>
               </div>
               
-              <h1 className="text-[44px] md:text-[68px] lg:text-[76px] font-semibold tracking-[-0.04em] leading-[1.05] text-cloud-white max-w-3xl">
+              <h1 className="text-[36px] sm:text-[48px] md:text-[68px] lg:text-[76px] font-semibold tracking-[-0.04em] leading-[1.05] text-cloud-white max-w-3xl">
                 Talk to your patient. <br />
                 We&apos;ll write the{" "}
-                <span className="inline-block border border-dashed border-clinical-cyan rounded-icons px-3 md:px-5 py-0.5 mx-1 text-clinical-cyan shadow-[0_0_20px_rgba(0,177,255,0.15)] transition-transform hover:scale-[1.03] cursor-default">
+                <span className="inline-block border border-dashed border-clinical-cyan rounded-icons px-2 sm:px-3 md:px-5 py-0.5 mx-0.5 sm:mx-1 text-clinical-cyan shadow-[0_0_20px_rgba(0,177,255,0.15)] transition-transform hover:scale-[1.03] cursor-default">
                   note.
                 </span>
               </h1>
 
-              <p className="max-w-xl text-subheading text-pearl/80 leading-relaxed font-medium">
+              <p className="max-w-xl text-[15px] sm:text-subheading text-pearl/80 leading-relaxed font-medium">
                 Record the consultation and get structured SOAP notes and
                 prescriptions in seconds — tuned for Indian English, Hindi &amp;
                 Hinglish, ready for your review and sign-off.
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4">
               <Button 
                 size="lg" 
-                className="rounded-buttons bg-iris-pulse hover:bg-iris-pulse/90 text-cloud-white text-[17px] font-medium px-8 py-6 h-auto shadow-[0_4px_20px_rgba(83,80,204,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] border border-iris-veil/20 transition-all hover:scale-[1.02]" 
+                className="rounded-buttons bg-iris-pulse hover:bg-iris-pulse/90 text-cloud-white text-[15px] sm:text-[17px] font-medium px-6 sm:px-8 py-4 sm:py-6 h-auto shadow-[0_4px_20px_rgba(83,80,204,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] border border-iris-veil/20 transition-all hover:scale-[1.02] w-full sm:w-auto" 
                 asChild
               >
-                <Link href="/login" className="flex items-center gap-2">
+                <Link href="/login" className="flex items-center justify-center gap-2">
                   <Mic className="size-5 stroke-[2.5]" />
                   Get started free
                 </Link>
@@ -141,10 +141,10 @@ function Hero() {
               <Button 
                 size="lg" 
                 variant="outline" 
-                className="rounded-buttons border-cloud-white/20 text-cloud-white hover:border-cloud-white/40 hover:bg-cloud-white/5 text-[17px] font-medium px-8 py-6 h-auto transition-all"
+                className="rounded-buttons border-cloud-white/20 text-cloud-white hover:border-cloud-white/40 hover:bg-cloud-white/5 text-[15px] sm:text-[17px] font-medium px-6 sm:px-8 py-4 sm:py-6 h-auto transition-all w-full sm:w-auto"
                 asChild
               >
-                <a href="#how" className="flex items-center gap-1.5">
+                <a href="#how" className="flex items-center justify-center gap-1.5">
                   See how it works <ArrowRight className="size-4" />
                 </a>
               </Button>

@@ -107,7 +107,7 @@ export function TwoFactorCard() {
     // Remove the half-finished (unverified) factor so it doesn't linger.
     if (pending) {
       const supabase = createClient();
-      await supabase.auth.mfa.unenroll({ factorId: pending.factorId }).catch(() => {});
+      await supabase.auth.mfa.unenroll({ factorId: pending.factorId }).catch(() => { });
     }
     setPending(null);
     setCode("");

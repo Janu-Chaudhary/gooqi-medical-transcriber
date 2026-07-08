@@ -120,7 +120,7 @@ export function CrashRecoveryBanner() {
 
   return (
     <div className="border-b border-warning/30 bg-warning/10">
-      <div className="mx-auto max-w-6xl space-y-3 px-4 py-3">
+      <div className="mx-auto max-w-[1440px] space-y-3 px-4 sm:px-6 lg:px-8 py-3">
         {message && (
           <p className="text-sm text-amber-800 dark:text-amber-300">
             {message}
