@@ -90,3 +90,17 @@ export function aggregateTurns(turns: Turn[]): { durationMs: number; overallConf
 export function toSarvamLanguageCode(language: "hi" | "en-IN" | "auto"): string {
   return language === "auto" ? "unknown" : language === "hi" ? "hi-IN" : "en-IN";
 }
+
+/**
+ * The batch job's `status` and `download-files` endpoints are eventually
+ * consistent: `status` can report `Completed` a moment before `download-files`
+ * will accept the request, which then 400s with a message like
+ * "Job ... is not in COMPLETED state. Current state: Pending". That is a
+ * transient timing condition (retry after a short wait), NOT a permanent
+ * bad-input error — this detector distinguishes the two.
+ */
+export function isSarvamJobNotReady(message: string): boolean {
+  return /not in completed state|current state:\s*(pending|running|accepted)/i.test(
+    message,
+  );
+}

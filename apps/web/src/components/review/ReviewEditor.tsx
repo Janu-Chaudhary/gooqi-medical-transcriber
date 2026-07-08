@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import type { SpeakerLabel, Turn } from "@gooqi/shared";
 import { useApi } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
+import { COMMON_DRUGS, checkDose, checkFrequency } from "@/lib/drugSafety";
 import type {
   NoteFields,
   NoteResponse,
@@ -29,7 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useConfirm } from "@/components/ui/confirm";
+import { SignoffDialog, type ReauthProof } from "@/components/review/SignoffDialog";
 
 const SPEAKERS: SpeakerLabel[] = ["doctor", "patient", "other", "unknown"];
 const AUTOSAVE_MS = 30_000;
@@ -91,7 +92,7 @@ export function ReviewEditor({
   onFinalised: () => void | Promise<unknown>;
 }) {
   const { request } = useApi();
-  const confirm = useConfirm();
+  const [signoffOpen, setSignoffOpen] = useState(false);
 
   const [turns, setTurns] = useState<Turn[]>([]);
   const [note, setNote] = useState<NoteFields>(emptyNote());
@@ -169,7 +170,7 @@ export function ReviewEditor({
       await request(`/api/sessions/${sessionId}/transcript`, {
         method: "PATCH",
         body: { turns },
-      }).catch(() => {});
+      }).catch(() => { });
       dirtyRef.current = false;
       setDirty(false);
       setSavedAt(
@@ -269,24 +270,23 @@ export function ReviewEditor({
     note.primary_diagnosis.trim().length > 0 &&
     (note.no_medication || hasValidRx);
 
-  async function signoff() {
-    if (!canSign) return;
-    const ok = await confirm({
-      title: "Sign & finalise note?",
-      description: `This will finalise the clinical note as Dr. ${doctorName}. Finalised notes are locked from further editing.`,
-      confirmText: "Sign & Finalise",
-      variant: "primary",
-    });
-    if (!ok) return;
+  // Re-authenticated sign-off: the SignoffDialog mints a fresh access token by
+  // re-authenticating the doctor, which we pass to the API as signature proof.
+  async function completeSignoff(proof: ReauthProof) {
     setSigning(true);
     try {
       if (dirtyRef.current) await save();
-      await request(`/api/sessions/${sessionId}/signoff`, { method: "POST" });
+      await request(`/api/sessions/${sessionId}/signoff`, {
+        method: "POST",
+        body: { reauth_access_token: proof.token, reauth_method: proof.method },
+      });
       toast.success("Note finalised");
       await onFinalised();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-off failed.");
-      toast.error(err instanceof Error ? err.message : "Sign-off failed.");
+      const msg = err instanceof Error ? err.message : "Sign-off failed.";
+      setError(msg);
+      toast.error(msg);
+      throw err instanceof Error ? err : new Error(msg);
     } finally {
       setSigning(false);
     }
@@ -335,7 +335,7 @@ export function ReviewEditor({
           </Button>
           <Button
             size="sm"
-            onClick={signoff}
+            onClick={() => setSignoffOpen(true)}
             disabled={!canSign}
             loading={signing}
             title={
@@ -463,7 +463,9 @@ export function ReviewEditor({
                   <p className="whitespace-pre-wrap text-sm">{summary}</p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    The patient visit summary is still being generated.
+                    The plain-language patient summary is generated when you{" "}
+                    <strong>Sign &amp; Finalise</strong>. You can then review,
+                    edit, and print it.
                   </p>
                 )}
               </TabsContent>
@@ -471,6 +473,13 @@ export function ReviewEditor({
           </CardBody>
         </Card>
       </div>
+
+      <SignoffDialog
+        open={signoffOpen}
+        onOpenChange={setSignoffOpen}
+        doctorName={doctorName}
+        onConfirmed={completeSignoff}
+      />
     </div>
   );
 }
@@ -605,6 +614,14 @@ function RxTable({
   ];
   return (
     <div className="space-y-3">
+      {/* Shared datalist for drug-name autocomplete (advisory only — any
+          value can still be typed; this isn't a restrictive formulary). */}
+      <datalist id="common-drugs">
+        {COMMON_DRUGS.map((d) => (
+          <option key={d} value={d} />
+        ))}
+      </datalist>
+
       <label className="flex items-center gap-2 rounded-md border border-border p-3 text-sm">
         <input
           type="checkbox"
@@ -623,42 +640,57 @@ function RxTable({
                 No prescriptions. Add one below.
               </p>
             )}
-            {prescriptions.map((r, i) => (
-              <div
-                key={i}
-                className="space-y-2 rounded-md border border-border p-3"
-              >
-                <div className="grid grid-cols-2 gap-2">
-                  {cols.map(([key, label]) => (
-                    <div key={key} className="space-y-1">
-                      <Label className="text-[11px] uppercase text-muted-foreground">
-                        {label}
-                      </Label>
-                      <Input
-                        value={r[key] ?? ""}
-                        onChange={(e) =>
-                          onUpdate(i, {
-                            [key]: e.target.value,
-                          } as Partial<PrescriptionDraft>)
-                        }
-                        onBlur={onBlur}
-                      />
-                    </div>
-                  ))}
+            {prescriptions.map((r, i) => {
+              const doseWarning = checkDose(r.dose ?? "");
+              const freqWarning = checkFrequency(r.frequency ?? "");
+              return (
+                <div
+                  key={i}
+                  className="space-y-2 rounded-md border border-border p-3"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    {cols.map(([key, label]) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-[11px] uppercase text-muted-foreground">
+                          {label}
+                        </Label>
+                        <Input
+                          value={r[key] ?? ""}
+                          list={key === "drug_name" ? "common-drugs" : undefined}
+                          onChange={(e) =>
+                            onUpdate(i, {
+                              [key]: e.target.value,
+                            } as Partial<PrescriptionDraft>)
+                          }
+                          onBlur={onBlur}
+                        />
+                        {key === "dose" && doseWarning && (
+                          <p className="text-[11px] text-warning">
+                            ⚠ {doseWarning}
+                          </p>
+                        )}
+                        {key === "frequency" && freqWarning && (
+                          <p className="text-[11px] text-warning">
+                            ⚠ {freqWarning}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:bg-destructive/10"
+                      onClick={() => onRemove(i)}
+                    >
+                      <Trash2 className="size-4" />
+                      Remove
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive hover:bg-destructive/10"
-                    onClick={() => onRemove(i)}
-                  >
-                    <Trash2 className="size-4" />
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <Button size="sm" variant="secondary" onClick={onAdd}>
             <Plus className="size-4" />

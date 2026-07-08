@@ -48,8 +48,26 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Already signed in but visiting /login → send to sessions.
-  if (user && pathname === "/login") {
+  // Step-up enforcement: a doctor with a verified TOTP factor must reach AAL2
+  // before touching PHI. If they're only at AAL1, send them to /login to
+  // complete the 2FA challenge (the login page detects the pending step-up).
+  let needsMfa = false;
+  if (user) {
+    const { data: aal } =
+      await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    needsMfa =
+      aal?.currentLevel === "aal1" && aal?.nextLevel === "aal2";
+  }
+
+  if (user && needsMfa && !isPublic) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  // Already fully signed in but visiting /login → send to sessions. Users who
+  // still owe a 2FA code stay on /login to complete it.
+  if (user && !needsMfa && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/sessions";
     return NextResponse.redirect(url);

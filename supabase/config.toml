@@ -24,13 +24,22 @@ pool_mode = "transaction"
 enabled = true
 port = 54323
 
-[inbucket]
+[local_smtp]
 enabled = true
 port = 54324
 
 [storage]
 enabled = true
 file_size_limit = "50MiB"
+
+# NOTE: `supabase config push` will always print an error at the very end —
+# "unexpected status 402: Please upgrade the project to a paid tier to enable
+# vector buckets". This is the CLI defaulting [vector].enabled to true against
+# a free-tier project; setting it to false locally does not suppress it (CLI
+# schema quirk, confirmed 2026-07). It is harmless and unrelated to Auth/API/DB
+# — those are applied first and the push output will say "up to date" /
+# show their diff BEFORE this trailing Storage error, so check for that rather
+# than the overall exit code.
 
 [auth]
 enabled = true
@@ -45,6 +54,20 @@ enable_confirmations = false
 
 # Email OTP (magic-link / one-time code) sign-in for doctors.
 [auth.email.template]
+
+# Custom SMTP (Resend) — the built-in mailer is hard-capped at 2 emails/hour
+# project-wide with no way to raise it; custom SMTP removes that ceiling.
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_SMTP_PASS)"
+admin_email = "onboarding@resend.dev"
+sender_name = "Gooqi Scribe"
+
+[auth.rate_limit]
+email_sent = 100
 
 [analytics]
 enabled = false

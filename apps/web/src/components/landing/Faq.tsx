@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, HelpCircle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 
@@ -36,32 +36,45 @@ export function Faq() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-3">
+    <div className="mx-auto max-w-3xl space-y-4">
       {FAQS.map((item, i) => {
         const isOpen = open === i;
         return (
-          <Card key={i} className="overflow-hidden">
+          <Card 
+            key={i} 
+            className={cn(
+              "overflow-hidden border transition-all duration-300 rounded-cards",
+              isOpen 
+                ? "bg-iris-shadow border-iris-veil shadow-lg" 
+                : "bg-iris-shadow/60 border-iris-border/50 hover:border-iris-border hover:bg-iris-shadow"
+            )}
+          >
             <button
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+              className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left group"
               onClick={() => setOpen(isOpen ? null : i)}
               aria-expanded={isOpen}
             >
-              <span className="font-medium">{item.q}</span>
-              <ChevronDown
-                className={cn(
-                  "size-5 shrink-0 text-muted-foreground transition-transform",
-                  isOpen && "rotate-180",
-                )}
-              />
+              <span className="flex items-center gap-3 text-[17px] font-semibold text-cloud-white tracking-[-0.3px] group-hover:text-clinical-cyan transition-colors">
+                <HelpCircle className="size-5 text-lilac-mist shrink-0 stroke-[1.8]" />
+                {item.q}
+              </span>
+              <span className="flex size-7 items-center justify-center rounded-full bg-deep-iris border border-iris-border group-hover:border-clinical-cyan transition-colors">
+                <ChevronDown
+                  className={cn(
+                    "size-4 shrink-0 text-clinical-cyan transition-transform duration-300",
+                    isOpen && "rotate-180",
+                  )}
+                />
+              </span>
             </button>
             <div
               className={cn(
-                "grid transition-all duration-200",
-                isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                "grid transition-all duration-300 ease-in-out",
+                isOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
               )}
             >
               <div className="overflow-hidden">
-                <p className="px-5 pb-4 text-sm text-muted-foreground">
+                <p className="px-6 pb-6 text-[14px] leading-relaxed text-ash/90 tracking-[0.28px] border-t border-iris-border/30 pt-4">
                   {item.a}
                 </p>
               </div>

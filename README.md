@@ -31,65 +31,113 @@ pnpm install
 
 ## 2. Configure environment
 
-Copy `.env.example` → `.env` and fill in:
+Copy `.env.example` → `.env` and fill in the required variables.
 
-| Var | Needed by | Notes |
-|-----|-----------|-------|
-| `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_URL` | all | `https://<ref>.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | web | Supabase → Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | api, worker | server-only; never expose to the browser |
-| `GEMINI_API_KEY` | worker | required for SOAP note generation (Google Gemini) |
-| `ASR_PROVIDER` | worker | `mock` for local dev; `sarvam`/`sarvam_batch`/`deepgram`/`assemblyai`/`google_chirp`/`faster_whisper`/`goqii_vertex` in prod (`sarvam_batch` adds real speaker diarization, at the cost of a much slower job-based turnaround) |
-| `REDIS_URL` | api, worker | e.g. `redis://default:<pw>@<host>:<port>` |
-| `API_PORT` / `WEB_ORIGIN` / `NEXT_PUBLIC_API_URL` | — | defaults: 4000 / localhost:3000 / localhost:4000 |
+| Var | Needed by | Notes / Values |
+|-----|-----------|----------------|
+| `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_URL` | All | The URL of your Supabase project (e.g. `https://giokilhxwatscmjcidwl.supabase.co`). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Web | Supabase anon key (safe for browser access). |
+| `SUPABASE_SERVICE_ROLE_KEY` | API, Worker | Supabase service role key (keep secret, bypasses RLS). |
+| `GEMINI_API_KEY` | Worker | Google Gemini key required for structured SOAP note and prescription generation. |
+| `ASR_PROVIDER` | Worker | Speech-to-Text provider. **Use `sarvam_batch` (recommended for production/full audio) or `mock` (for local development).** |
+| `SARVAM_API_KEY` | Worker | Your subscription key for Sarvam AI (needed if using `sarvam` or `sarvam_batch`). |
+| `REDIS_URL` | API, Worker | Redis connection string (e.g. Upstash or local) for the BullMQ job queue. |
+| `API_PORT` / `WEB_ORIGIN` / `NEXT_PUBLIC_API_URL` | — | Network configuration. Defaults: `4000` / `http://localhost:3000` / `http://localhost:4000`. |
 
-`apps/web/.env.local` holds the three `NEXT_PUBLIC_*` vars for the browser build
-(Next.js reads its own env file).
+> [!WARNING]
+> **GOQii Vertex (Gemini) ASR Note:**
+> The `goqii_vertex` ASR provider (`https://apiv6.goqii.com/vertex/recording`) is currently deprecated/decommissioned and returns `404 Not Found`. Avoid setting `ASR_PROVIDER=goqii_vertex`. Instead, use `sarvam_batch` or `mock`.
+
+`apps/web/.env.local` holds the three `NEXT_PUBLIC_*` variables for the browser build (Next.js reads its own env file).
 
 ## 3. Apply the database schema
 
-**Easiest:** open Supabase Dashboard → **SQL Editor**, paste the contents of
-`supabase/ALL_MIGRATIONS.sql`, and **Run**. This creates all tables, the
-`session_status` enum, RLS policies, the append-only `consent_log` trigger, and
-the private `session-audio` storage bucket.
+**Option A — SQL Editor (Easiest)**
+1. Open your Supabase Dashboard.
+2. Navigate to the **SQL Editor**.
+3. Copy the entire contents of the file `supabase/ALL_MIGRATIONS.sql`.
+4. Paste it into the editor and click **Run**. This creates the tables, schemas, RLS policies, append-only consent trigger, and the private `session-audio` storage bucket.
 
-**Or via the Supabase CLI** (needs `supabase login` + project ref + DB password):
-
+**Option B — Supabase CLI**
+If you have the CLI configured, run:
 ```bash
-supabase link --project-ref <your-ref>
+supabase link --project-ref <your-project-ref>
 supabase db push
 ```
 
-Also enable **Email OTP** sign-in: Dashboard → Authentication → Providers → Email
-(turn on "Email OTP" / magic link).
+*Note: Ensure **Email OTP** sign-in is enabled in your Supabase project (Authentication → Providers → Email → turn on "Email OTP" / magic link).*
 
-## 4. Run everything
+## 4. Run the application
 
+### Step 1: Preflight check (Optional)
+Run the preflight check to ensure all environment variables are correctly configured and external services (Supabase, Redis, Gemini, ASR) are reachable:
 ```bash
-pnpm dev          # turbo runs web (:3000), api (:4000), worker together
+pnpm preflight
 ```
 
-Or individually:
-
+### Step 2: Start the Development Server
+This runs the Next.js frontend, Express API server, and BullMQ worker concurrently under Turborepo:
 ```bash
-pnpm --filter @gooqi/web dev
-pnpm --filter @gooqi/api dev
-pnpm --filter @gooqi/worker dev
+pnpm dev
 ```
 
-## 5. End-to-end smoke test (with `ASR_PROVIDER=mock`)
+If you prefer to run services individually:
+```bash
+pnpm --filter @gooqi/web dev      # Frontend (:3000)
+pnpm --filter @gooqi/api dev      # API (:4000)
+pnpm --filter @gooqi/worker dev   # Job queue / worker
+```
 
-1. Open http://localhost:3000 → redirected to `/login`. Sign in with email OTP.
-2. **New Session** → enter patient name/phone → tick the consent checkbox → Start.
-3. Record ~30s of audio → Stop. Chunks persist to IndexedDB then upload; on Stop
-   the API assembles `audio.webm` and enqueues transcription.
-4. The worker (mock ASR) produces a transcript, then Gemini generates the SOAP
-   note + prescriptions. Session moves `audio_uploaded → transcribing →
-   generating_note → draft`.
-5. The review screen shows the transcript, editable SOAP fields, and the Rx table.
-   Edit a field (autosaves every 30s), then **Sign & Finalise** → status `final`.
-6. A plain-language visit summary is generated; print it (A5) from the read-only view.
-7. **History** lists the session, filterable by patient.
+## 5. End-to-end Testing
+
+### testing with `ASR_PROVIDER=mock` (Local Dev)
+1. Set `ASR_PROVIDER=mock` in your `.env` file.
+2. Start the dev server (`pnpm dev`).
+3. Open `http://localhost:3000` and sign in with email OTP (if testing locally with Supabase, magic links will be sent or caught).
+4. Click **New Session**, enter a patient's details, tick the consent box, and click **Start**.
+5. Record a short consultation and click **Stop**.
+6. The app uploads the audio chunks to Supabase, finalizes the audio, and starts transcribing.
+7. Using the `mock` provider, a deterministic doctor–patient exchange is simulated immediately. 
+8. The SOAP note and prescriptions will generate automatically via Gemini and transition the status to **Draft**.
+
+### testing with `ASR_PROVIDER=sarvam_batch` (Production)
+1. Set `ASR_PROVIDER=sarvam_batch` in your `.env` and fill in `SARVAM_API_KEY`.
+2. Start the dev server (`pnpm dev`).
+3. Follow the same recording steps.
+4. The `sarvam_batch` provider uploads the audio file to Sarvam, polls for transcription completion (supporting files >30 seconds), performs speaker diarization, and passes the transcript to Gemini to generate clinical notes.
+
+## Security & compliance
+
+- **MFA (TOTP)** — doctors enable two-factor auth in **Settings**; login then
+  requires a code (AAL2), enforced by `apps/web/src/middleware.ts`.
+- **Attributable sign-off (IT Act 2000 §5)** — finalising a note requires a
+  fresh step-up re-authentication (password re-entry or emailed code); the API
+  verifies the proof and records `signoff_method` / IP / user-agent.
+- **Consent** — hard gate, shown in EN/HI, with `consent_language` written to an
+  append-only `consent_log`.
+- **Docs**: `docs/legal/DPA_TEMPLATE.md` (data-processing agreement) and
+  `docs/compliance/DPDP_CHECKLIST.md` (status of every DPDP/SPDI obligation,
+  including the pre-pilot blockers).
+
+## ASR bake-off
+
+Compare providers on real clinic audio before choosing one:
+
+```bash
+pnpm --filter @gooqi/worker bakeoff <manifest.json> --out results.json
+```
+
+Prints a WER/CER + speaker-count scorecard. See
+`apps/worker/src/bakeoff/README.md` for the manifest schema and test-set design
+(≥100 clips, 3-speaker scenarios, graded noise).
+
+## Testing
+
+```bash
+pnpm test         # vitest across packages (WER metrics, sign-off rule, schemas)
+```
+
+CI (`.github/workflows/ci.yml`) runs lint → typecheck → test → build on every PR.
 
 ## Architecture notes
 

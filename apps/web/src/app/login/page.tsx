@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { LoginBackground } from "@/components/auth/LoginBackground";
 
-type View = "select" | "email" | "password";
+type View = "select" | "email" | "password" | "mfa";
 type Stage = "email" | "sent";
 
 export default function LoginPage() {
@@ -31,11 +31,81 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const supabase = createClient();
+
+  /**
+   * After primary auth succeeds, enforce step-up: if the account has a verified
+   * TOTP factor the session is only AAL1 until a code is entered. Show the MFA
+   * challenge; otherwise proceed to the app.
+   */
+  const afterPrimaryAuth = useCallback(async () => {
+    const { data } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (data && data.nextLevel === "aal2" && data.nextLevel !== data.currentLevel) {
+      const factors = await supabase.auth.mfa.listFactors();
+      const totp = factors.data?.totp?.find((f) => f.status === "verified");
+      if (totp) {
+        setMfaFactorId(totp.id);
+        setView("mfa");
+        return;
+      }
+    }
+    router.replace("/sessions");
+    router.refresh();
+  }, [supabase, router]);
+
+  // Handle the case where the user is already signed in at AAL1 (e.g. returned
+  // from an OAuth redirect, or was bounced here by the middleware) but still
+  // owes a 2FA code.
+  useEffect(() => {
+    void supabase.auth.mfa
+      .getAuthenticatorAssuranceLevel()
+      .then(async ({ data }) => {
+        if (
+          data &&
+          data.currentLevel === "aal1" &&
+          data.nextLevel === "aal2"
+        ) {
+          const factors = await supabase.auth.mfa.listFactors();
+          const totp = factors.data?.totp?.find((f) => f.status === "verified");
+          if (totp) {
+            setMfaFactorId(totp.id);
+            setView("mfa");
+          }
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function verifyMfa(e: React.FormEvent) {
+    e.preventDefault();
+    if (!mfaFactorId) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const challenge = await supabase.auth.mfa.challenge({
+        factorId: mfaFactorId,
+      });
+      if (challenge.error) throw challenge.error;
+      const verify = await supabase.auth.mfa.verify({
+        factorId: mfaFactorId,
+        challengeId: challenge.data.id,
+        code: mfaCode.trim(),
+      });
+      if (verify.error) throw verify.error;
+      router.replace("/sessions");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid code.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   function goSelect() {
     setView("select");
@@ -77,8 +147,7 @@ export default function LoginPage() {
         password,
       });
       if (error) throw error;
-      router.replace("/sessions");
-      router.refresh();
+      await afterPrimaryAuth();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
     } finally {
@@ -119,8 +188,7 @@ export default function LoginPage() {
         type: "email",
       });
       if (error) throw error;
-      router.replace("/sessions");
-      router.refresh();
+      await afterPrimaryAuth();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid code.");
     } finally {
@@ -131,18 +199,23 @@ export default function LoginPage() {
   const heading =
     view === "select"
       ? { title: "Log in to your account", sub: "Choose an option to continue" }
-      : view === "email"
+      : view === "mfa"
         ? {
-            title: "Continue with email",
-            sub:
-              stage === "email"
-                ? "We'll email you a magic link and a code"
-                : "Enter the code we emailed you",
+            title: "Two-factor authentication",
+            sub: "Enter the 6-digit code from your authenticator app",
           }
-        : {
-            title: "Continue with password",
-            sub: "Sign in with your email and password",
-          };
+        : view === "email"
+          ? {
+              title: "Continue with email",
+              sub:
+                stage === "email"
+                  ? "We'll email you a magic link and a code"
+                  : "Enter the code we emailed you",
+            }
+          : {
+              title: "Continue with password",
+              sub: "Sign in with your email and password",
+            };
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-b from-background to-primary/5 px-4 py-10">
@@ -334,6 +407,50 @@ export default function LoginPage() {
                 </form>
                 <BackButton onClick={goSelect} />
               </div>
+            )}
+
+            {view === "mfa" && (
+              <form onSubmit={verifyMfa} className="space-y-4">
+                <div className="flex items-start gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm">
+                  <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <p className="text-muted-foreground">
+                    This account is protected with two-factor authentication.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="mfa">Authenticator code</Label>
+                  <Input
+                    id="mfa"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    autoFocus
+                    placeholder="123456"
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  loading={loading}
+                  disabled={loading || mfaCode.trim().length < 6}
+                >
+                  {loading ? "Verifying…" : "Verify & continue"}
+                </Button>
+                <button
+                  type="button"
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    setMfaFactorId(null);
+                    setMfaCode("");
+                    goSelect();
+                  }}
+                >
+                  Cancel and sign out
+                </button>
+              </form>
             )}
           </CardBody>
         </Card>

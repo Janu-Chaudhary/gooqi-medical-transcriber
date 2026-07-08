@@ -3,8 +3,28 @@
 import { useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const getApiUrl = (): string => {
+  const defaultUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+  if (typeof window !== "undefined") {
+    const isLocalhost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    if (!isLocalhost) {
+      try {
+        const url = new URL(defaultUrl);
+        if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+          url.hostname = window.location.hostname;
+          return url.toString().replace(/\/$/, "");
+        }
+      } catch {
+        // Fallback to defaultUrl
+      }
+    }
+  }
+  return defaultUrl;
+};
+
+export const API_URL = getApiUrl();
 
 export class ApiError extends Error {
   status: number;
