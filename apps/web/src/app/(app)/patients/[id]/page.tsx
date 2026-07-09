@@ -801,7 +801,7 @@ export default function PatientProfilePage({
                       <FileUp className="size-4 text-primary" />
                       Add Laboratory Reports &amp; EMR Attachments
                     </h3>
-                    <p className="text-xs text-muted-foreground mt-1">PDFs, image scans, and lab results can be uploaded directly to this patient's profile.</p>
+                    <p className="text-xs text-muted-foreground mt-1">PDFs, image scans, and lab results can be uploaded directly to this patient&apos;s profile.</p>
                   </div>
 
                   <div className="relative shrink-0 w-full sm:w-auto">
