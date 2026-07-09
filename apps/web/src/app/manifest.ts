@@ -31,14 +31,14 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
     screenshots: [
       {
-        src: "/screenshot-desktop.png",
+        src: "/screenshot-desktop.svg.png",
         sizes: "1280x720",
         type: "image/png",
         // @ts-ignore - Some TS types for MetadataRoute.Manifest might be outdated
         form_factor: "wide"
       },
       {
-        src: "/screenshot-mobile.png",
+        src: "/screenshot-mobile.svg.png",
         sizes: "720x1280",
         type: "image/png",
         // @ts-ignore
