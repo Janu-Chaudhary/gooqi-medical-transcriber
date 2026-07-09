@@ -152,6 +152,10 @@
   body {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* Native App Feel for Android/iOS */
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+    overflow-x: hidden;
   }
 }
 
