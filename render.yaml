@@ -15,8 +15,8 @@ services:
     runtime: node
     plan: free
     region: singapore
-    buildCommand: pnpm install --frozen-lockfile --prod=false
-    startCommand: pnpm --filter @gooqi/api exec tsx src/index.ts
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter=@gooqi/api... run build
+    startCommand: pnpm --filter @gooqi/api start
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
