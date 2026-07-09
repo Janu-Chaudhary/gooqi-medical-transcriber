@@ -56,6 +56,10 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/", (_req, res) => {
+  res.json({ message: "Gooqi API is running! Access endpoints at /api/*" });
+});
+
 app.use("/api", apiLimiter, sessionsRouter);
 app.use("/api", apiLimiter, patientsRouter);
 app.use("/api", apiLimiter, doctorRouter);
@@ -63,6 +67,6 @@ app.use("/api", apiLimiter, doctorRouter);
 // Central error handler (must be last).
 app.use(errorMiddleware);
 
-app.listen(API_PORT, () => {
-  console.log(`[api] listening on :${API_PORT} (web origin: ${WEB_ORIGIN})`);
+app.listen(API_PORT, "0.0.0.0", () => {
+  console.log(`[api] listening on 0.0.0.0:${API_PORT} (web origin: ${WEB_ORIGIN})`);
 });
