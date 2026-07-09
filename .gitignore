@@ -38,5 +38,18 @@ supabase/.temp
 .logs/
 dump.rdb
 
+# Android / Bubblewrap
+.gradle/
+android.keystore
+app/
+gradlew
+gradlew.bat
+gradle/
+gradle.properties
+settings.gradle
+manifest-checksum.txt
+store_icon.png
+twa-manifest.json
+
 # large local test assets (not source) — use Git LFS if these must be shared
 mockaudios/
