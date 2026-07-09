@@ -11,7 +11,7 @@ import "./lib/env.js"; // must be first — loads .env before any env reads
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import { rateLimit } from "express-rate-limit";
 import { sessionsRouter } from "./routes/sessions.js";
 import { patientsRouter } from "./routes/patients.js";
 import { doctorRouter } from "./routes/doctor.js";
@@ -29,7 +29,7 @@ const app = express();
 app.set("trust proxy", 1);
 
 // Baseline security headers (HSTS, X-Content-Type-Options, frameguard, etc.).
-app.use(helmet());
+app.use((helmet as any)());
 
 app.use(
   cors({
