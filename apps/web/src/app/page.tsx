@@ -1901,6 +1901,7 @@ function UnifiedScribeConsole() {
       }, 1000);
     }
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoState]);
 
   useEffect(() => {
@@ -1921,6 +1922,7 @@ function UnifiedScribeConsole() {
       }, 1500);
     }
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoState]);
 
   useEffect(() => {
@@ -1941,6 +1943,7 @@ function UnifiedScribeConsole() {
     } else if (demoState === "recording") {
       setLogs(SYSTEM_LOGS);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoState]);
 
   const handleStart = () => {
